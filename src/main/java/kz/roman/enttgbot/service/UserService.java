@@ -5,6 +5,8 @@ import kz.roman.enttgbot.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class UserService {
@@ -12,5 +14,9 @@ public class UserService {
 
     public void save(String chatId) {
         userRepository.save(new User(chatId));
+    }
+
+    public Optional<User> findById(String id) {
+        return userRepository.findById(id);
     }
 }

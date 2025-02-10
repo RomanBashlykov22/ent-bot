@@ -1,6 +1,9 @@
 package kz.roman.enttgbot.bot;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import kz.roman.enttgbot.model.dto.TestSession;
+import kz.roman.enttgbot.model.dto.UserAnswer;
 import kz.roman.enttgbot.model.entity.*;
 import kz.roman.enttgbot.service.*;
 import kz.roman.enttgbot.util.CallbackStorage;
@@ -10,6 +13,8 @@ import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
@@ -28,28 +33,35 @@ public class EntBot extends TelegramLongPollingBot {
     private final SubtopicService subtopicService;
     private final QuestionService questionService;
     private final SessionService sessionService;
+    private final AIService aiService;
+    private final ObjectMapper objectMapper;
 
     private final Map<String, TestSession> testSessions = new HashMap<>();
 
     private static final String START = "/start";
     private static final String TEST = "/test";
     private static final String RESULTS = "/results";
+    private static final String ASK = "/ask";
 
     private static final String TOPIC_ID_CALLBACK_DATA = "Topic ID: ";
     private static final String SUBTOPIC_ID_CALLBACK_DATA = "Subtopic ID: ";
     private static final String ANSWER = "Answer_";
 
-    @Value("${bot.name}")
+    @Value("${tg.bot.name}")
     private String botUsername;
     private DialogMode dialogMode;
+    private Integer messageId = null;
+    private List<UserAnswer> userAnswers = new ArrayList<>();
 
     public EntBot(
-            @Value("${bot.token}") String botToken,
+            @Value("${tg.bot.token}") String botToken,
             UserService userService,
             TopicService topicService,
             SubtopicService subtopicService,
             QuestionService questionService,
-            SessionService sessionService
+            SessionService sessionService,
+            AIService aiService,
+            ObjectMapper objectMapper
     ) {
         super(botToken);
         this.userService = userService;
@@ -57,8 +69,13 @@ public class EntBot extends TelegramLongPollingBot {
         this.subtopicService = subtopicService;
         this.questionService = questionService;
         this.sessionService = sessionService;
+        this.aiService = aiService;
+        this.objectMapper = objectMapper;
         List<BotCommand> botCommands = new ArrayList<>();
         botCommands.add(new BotCommand(START, "Главное меню"));
+        botCommands.add(new BotCommand(TEST, "Начать тестирование"));
+        botCommands.add(new BotCommand(RESULTS, "Посмотреть историю попыток тестирований"));
+        botCommands.add(new BotCommand(ASK, "Задать вопрос искусственному интеллекту"));
         try {
             execute(new SetMyCommands(botCommands, new BotCommandScopeDefault(), null));
         } catch (TelegramApiException e) {
@@ -82,6 +99,9 @@ public class EntBot extends TelegramLongPollingBot {
                 }
                 if (message.equalsIgnoreCase(RESULTS)) {
                     getUserResults(chatId);
+                }
+                if (message.equalsIgnoreCase(ASK) || dialogMode.equals(DialogMode.AI_ASK)) {
+                    aiConversation(chatId, message);
                 }
             }
         } else if (update.hasCallbackQuery()) {
@@ -120,6 +140,7 @@ public class EntBot extends TelegramLongPollingBot {
                 /start - Начать работу с ботом.
                 /test - Начать тестирование по теме.
                 /results - Посмотреть свои результаты.
+                /ask - Задать вопрос искусственному интеллекту.
                 /help - Получить помощь.
                                 
                 Выберите команды чтобы продолжить.
@@ -153,7 +174,8 @@ public class EntBot extends TelegramLongPollingBot {
                 .text(messageText)
                 .replyMarkup(inlineKeyboardMarkup)
                 .build();
-        sendTextMessage(message);
+        Message sentMessage = sendTextMessage(message);
+        messageId = sentMessage.getMessageId();
     }
 
     private void getSubtopics(String chatId, long topicId) {
@@ -180,20 +202,22 @@ public class EntBot extends TelegramLongPollingBot {
                 """;
 
         dialogMode = DialogMode.TEST;
-        SendMessage message = SendMessage.builder()
+        EditMessageText editMessageText = EditMessageText.builder()
                 .chatId(chatId)
+                .messageId(messageId)
                 .text(messageText)
                 .replyMarkup(inlineKeyboardMarkup)
                 .build();
-        sendTextMessage(message);
+        editTextMessage(editMessageText);
     }
 
     private void startTest(String chatId, List<Question> questions) {
         Collections.shuffle(questions);
-        List<Question> testQuestions = questions.stream().limit(2).toList(); //TODO Изменить количество
+        List<Question> testQuestions = questions.stream().limit(10).toList(); //TODO Изменить количество
 
         TestSession testSession = new TestSession(testQuestions);
         testSessions.put(chatId, testSession);
+        userAnswers = new ArrayList<>();
 
         sendQuestion(chatId, testSession, 0);
     }
@@ -209,12 +233,13 @@ public class EntBot extends TelegramLongPollingBot {
                     .build()));
         }
 
-        SendMessage message = SendMessage.builder()
+        EditMessageText editMessageText = EditMessageText.builder()
                 .chatId(chatId)
+                .messageId(messageId)
                 .text(question.getQuestionText())
                 .replyMarkup(InlineKeyboardMarkup.builder().keyboard(buttons).build())
                 .build();
-        sendTextMessage(message);
+        editTextMessage(editMessageText);
     }
 
     private void handleAnswer(String chatId, int questionIndex, String selectedAnswer) {
@@ -224,6 +249,11 @@ public class EntBot extends TelegramLongPollingBot {
             return;
         }
         testSession.getAnswers().put(questionIndex, selectedAnswer);
+        userAnswers.add(UserAnswer.builder()
+                .question(testSession.getQuestions().get(questionIndex).getQuestionText())
+                .options(testSession.getQuestions().get(questionIndex).getOptions())
+                .correctOption(testSession.getQuestions().get(questionIndex).getCorrectOption())
+                .selectedOption(selectedAnswer).build());
 
         if (questionIndex + 1 < testSession.getQuestions().size()) {
             sendQuestion(chatId, testSession, questionIndex + 1);
@@ -238,14 +268,15 @@ public class EntBot extends TelegramLongPollingBot {
                         .equals(testSession.getAnswers().get(testSession.getQuestions().indexOf(q))))
                 .count();
 
-        SendMessage message = SendMessage.builder()
+        EditMessageText editMessageText = EditMessageText.builder()
                 .chatId(chatId)
+                .messageId(messageId)
                 .text("Тест завершен! Ваш результат: " + correctAnswers + " из " + testSession.getQuestions().size())
                 .build();
-        sendTextMessage(message);
+        editTextMessage(editMessageText);
 
         Session session = Session.builder()
-                .user(new User(chatId))
+                .user(userService.findById(chatId).orElseThrow())
                 .topic(testSession.getQuestions().get(0).getTopic())
                 .correctAnswers((int) correctAnswers)
                 .totalQuestions(testSession.getQuestions().size())
@@ -253,6 +284,9 @@ public class EntBot extends TelegramLongPollingBot {
         sessionService.save(session);
         dialogMode = DialogMode.MAIN;
         testSessions.remove(chatId);
+        messageId = null;
+
+        aiCheckUserAnswer(chatId, userAnswers);
     }
 
     private void getUserResults(String chatId) {
@@ -272,7 +306,54 @@ public class EntBot extends TelegramLongPollingBot {
         sendTextMessage(message);
     }
 
-    private void sendTextMessage(SendMessage message) {
+    private void aiCheckUserAnswer(String chatId, List<UserAnswer> userAnswers) {
+        try {
+            String jsonUserAnswer = "Проверка:\n" + objectMapper.writeValueAsString(userAnswers);
+            String answer = aiService.askAi(jsonUserAnswer);
+            SendMessage message = SendMessage.builder()
+                    .chatId(chatId)
+                    .text(answer)
+                    .build();
+            sendTextMessage(message);
+        } catch (InterruptedException | JsonProcessingException e) {
+            SendMessage message = SendMessage.builder()
+                    .chatId(chatId)
+                    .text("Не удалось получить ответ от ИИ. Повторите попытку")
+                    .build();
+            sendTextMessage(message);
+        }
+    }
+
+    private void aiConversation(String chatId, String userMessage) {
+        dialogMode = DialogMode.AI_ASK;
+
+        try {
+            String answer = userMessage.equalsIgnoreCase(ASK) ? aiService.askAi("Привет!") : aiService.askAi(userMessage);
+            SendMessage message = SendMessage.builder()
+                    .chatId(chatId)
+                    .text(answer)
+                    .build();
+            sendTextMessage(message);
+        } catch (InterruptedException e) {
+            SendMessage message = SendMessage.builder()
+                    .chatId(chatId)
+                    .text("Не удалось получить ответ от ИИ. Повторите попытку")
+                    .build();
+            sendTextMessage(message);
+        }
+    }
+
+    private Message sendTextMessage(SendMessage message) {
+        try {
+            return execute(message);
+        } catch (TelegramApiException e) {
+            dialogMode = DialogMode.MAIN;
+            log.error("Ошибка отправки сообщения", e);
+        }
+        return null;
+    }
+
+    private void editTextMessage(EditMessageText message) {
         try {
             execute(message);
         } catch (TelegramApiException e) {

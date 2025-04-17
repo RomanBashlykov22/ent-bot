@@ -9,6 +9,8 @@ import kz.roman.enttgbot.service.*;
 import kz.roman.enttgbot.util.CallbackStorage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.CacheManager;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
@@ -35,6 +37,7 @@ public class EntBot extends TelegramLongPollingBot {
     private final SessionService sessionService;
     private final AIService aiService;
     private final ObjectMapper objectMapper;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     private final Map<String, TestSession> testSessions = new HashMap<>();
 
@@ -61,7 +64,8 @@ public class EntBot extends TelegramLongPollingBot {
             QuestionService questionService,
             SessionService sessionService,
             AIService aiService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RedisTemplate<String, Object> redisTemplate
     ) {
         super(botToken);
         this.userService = userService;
@@ -71,6 +75,7 @@ public class EntBot extends TelegramLongPollingBot {
         this.sessionService = sessionService;
         this.aiService = aiService;
         this.objectMapper = objectMapper;
+        this.redisTemplate = redisTemplate;
         List<BotCommand> botCommands = new ArrayList<>();
         botCommands.add(new BotCommand(START, "Главное меню"));
         botCommands.add(new BotCommand(TEST, "Начать тестирование"));
@@ -268,6 +273,11 @@ public class EntBot extends TelegramLongPollingBot {
                         .equals(testSession.getAnswers().get(testSession.getQuestions().indexOf(q))))
                 .count();
 
+        String key = "user:" + chatId + ":mistakes";
+        testSession.getQuestions().stream()
+                .filter(q -> !q.getCorrectOption().equals(testSession.getAnswers().get(testSession.getQuestions().indexOf(q))))
+                .forEach(m -> redisTemplate.opsForHash().increment(key, m.getSubtopic().getName(), 1));
+
         EditMessageText editMessageText = EditMessageText.builder()
                 .chatId(chatId)
                 .messageId(messageId)
@@ -287,6 +297,23 @@ public class EntBot extends TelegramLongPollingBot {
         messageId = null;
 
         aiCheckUserAnswer(chatId, userAnswers);
+
+        Map<Object, Object> mistakes = redisTemplate.opsForHash().entries(key);
+        StringBuilder mistakesAnswer = new StringBuilder("В последнее время у тебя скопились ошибки по следующим темам:\n");
+        int length = mistakesAnswer.length();
+        mistakes.forEach((topic, count) -> {
+            if((int)count >= 5){
+                mistakesAnswer.append(topic).append("\n");
+            }
+        });
+        if(length != mistakesAnswer.length()) {
+            mistakesAnswer.append("Не забудь повторить их");
+            SendMessage message = SendMessage.builder()
+                    .chatId(chatId)
+                    .text(mistakesAnswer.toString())
+                    .build();
+            sendTextMessage(message);
+        }
     }
 
     private void getUserResults(String chatId) {

@@ -28,7 +28,6 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import smile.data.DataFrame;
 import smile.data.formula.Formula;
 import smile.data.vector.DoubleVector;
-import smile.data.vector.IntVector;
 import smile.regression.LinearModel;
 import smile.regression.OLS;
 
@@ -105,8 +104,8 @@ public class AppConfig {
     }
 
     @Bean
-    public int[][] xData() {
-        return new int[][]{
+    public double[][] xData() {
+        return new double[][]{
                 {1, 1, 30}, {3, 0, 120}, {2, 1, 60},
                 {1, 1, 15}, {1, 0, 15}, {1, 1, 45},
                 {1, 1, 60}, {1, 1, 75}, {1, 1, 120},
@@ -164,10 +163,10 @@ public class AppConfig {
     }
 
     @Bean
-    public LinearModel ols(int[][] xData, double[] yData) {
-        int[] difficulty = new int[xData.length];
-        int[] correct = new int[xData.length];
-        int[] time = new int[xData.length];
+    public LinearModel ols(double[][] xData, double[] yData) {
+        double[] difficulty = new double[xData.length];
+        double[] correct = new double[xData.length];
+        double[] time = new double[xData.length];
         double[] score = new double[xData.length];
 
         for (int i = 0; i < xData.length; i++) {
@@ -178,9 +177,9 @@ public class AppConfig {
         }
 
         DataFrame df = DataFrame.of(
-                IntVector.of("difficulty", difficulty),
-                IntVector.of("correct", correct),
-                IntVector.of("time", time),
+                DoubleVector.of("difficulty", difficulty),
+                DoubleVector.of("correct", correct),
+                DoubleVector.of("time", time),
                 DoubleVector.of("score", score)
         );
 

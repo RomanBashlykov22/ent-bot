@@ -11,6 +11,7 @@ import java.util.Map;
 public class TestSession {
     private final List<Question> questions;
     private final Map<Integer, String> answers = new HashMap<>();
+    private final Map<Integer, Long> questionSentTimestamps = new HashMap<>();
 
     public TestSession(List<Question> questions) {
         this.questions = questions;

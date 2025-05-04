@@ -30,4 +30,10 @@ public class Question {
     private List<String> options;
     @Column(nullable = false)
     private String correctOption;
+    @Enumerated(EnumType.STRING)
+    private QuestionDifficulty difficulty;
+
+    public enum QuestionDifficulty {
+        easy, medium, difficult
+    }
 }

@@ -12,4 +12,5 @@ public class UserAnswer {
     private List<String> options;
     private String correctOption;
     private String selectedOption;
+    private String questionScore;
 }

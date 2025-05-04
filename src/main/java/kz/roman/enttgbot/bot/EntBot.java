@@ -2,6 +2,8 @@ package kz.roman.enttgbot.bot;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kz.roman.enttgbot.model.dto.AIRequest;
+import kz.roman.enttgbot.model.dto.GradationScore;
 import kz.roman.enttgbot.model.dto.TestSession;
 import kz.roman.enttgbot.model.dto.UserAnswer;
 import kz.roman.enttgbot.model.entity.*;
@@ -36,6 +38,7 @@ public class EntBot extends TelegramLongPollingBot {
     private final QuestionService questionService;
     private final SessionService sessionService;
     private final AIService aiService;
+    private final NeuralService neuralService;
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
 
@@ -54,7 +57,7 @@ public class EntBot extends TelegramLongPollingBot {
     private String botUsername;
     private DialogMode dialogMode;
     private Integer messageId = null;
-    private List<UserAnswer> userAnswers = new ArrayList<>();
+    private AIRequest aiRequest = new AIRequest();
 
     public EntBot(
             @Value("${tg.bot.token}") String botToken,
@@ -64,6 +67,7 @@ public class EntBot extends TelegramLongPollingBot {
             QuestionService questionService,
             SessionService sessionService,
             AIService aiService,
+            NeuralService neuralService,
             ObjectMapper objectMapper,
             RedisTemplate<String, Object> redisTemplate
     ) {
@@ -74,6 +78,7 @@ public class EntBot extends TelegramLongPollingBot {
         this.questionService = questionService;
         this.sessionService = sessionService;
         this.aiService = aiService;
+        this.neuralService = neuralService;
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         List<BotCommand> botCommands = new ArrayList<>();
@@ -222,7 +227,7 @@ public class EntBot extends TelegramLongPollingBot {
 
         TestSession testSession = new TestSession(testQuestions);
         testSessions.put(chatId, testSession);
-        userAnswers = new ArrayList<>();
+        aiRequest.setUserAnswers(new ArrayList<>());
 
         sendQuestion(chatId, testSession, 0);
     }
@@ -237,6 +242,8 @@ public class EntBot extends TelegramLongPollingBot {
                     .callbackData(CallbackStorage.store(ANSWER + questionIndex + "_" + option))
                     .build()));
         }
+
+        testSession.getQuestionSentTimestamps().put(questionIndex, System.currentTimeMillis());
 
         EditMessageText editMessageText = EditMessageText.builder()
                 .chatId(chatId)
@@ -253,8 +260,13 @@ public class EntBot extends TelegramLongPollingBot {
             sendTextMessage(SendMessage.builder().chatId(chatId).text("Сессия теста не найдена. Начните заново").build());
             return;
         }
+
+        Long sentTimestamp = testSession.getQuestionSentTimestamps().get(questionIndex);
+        long timeSpentSeconds = (System.currentTimeMillis() - sentTimestamp) / 1000;
+        testSession.getQuestionSentTimestamps().put(questionIndex, timeSpentSeconds);
+
         testSession.getAnswers().put(questionIndex, selectedAnswer);
-        userAnswers.add(UserAnswer.builder()
+        aiRequest.getUserAnswers().add(UserAnswer.builder()
                 .question(testSession.getQuestions().get(questionIndex).getQuestionText())
                 .options(testSession.getQuestions().get(questionIndex).getOptions())
                 .correctOption(testSession.getQuestions().get(questionIndex).getCorrectOption())
@@ -296,7 +308,14 @@ public class EntBot extends TelegramLongPollingBot {
         testSessions.remove(chatId);
         messageId = null;
 
-        aiCheckUserAnswer(chatId, userAnswers);
+        var answerMatrix = neuralService.buildAnswerMatrix(testSession, aiRequest.getUserAnswers());
+        GradationScore gradationScore = neuralService.gradation(answerMatrix);
+        aiRequest.setTotalScore(String.format("%.4f", gradationScore.getTotalScore()));
+        for (int i = 0; i < gradationScore.getScores().size(); i++) {
+            aiRequest.getUserAnswers().get(i).setQuestionScore(String.format("%.4f", gradationScore.getScores().get(i)));
+        }
+
+        aiCheckUserAnswer(chatId, aiRequest);
 
         Map<Object, Object> mistakes = redisTemplate.opsForHash().entries(key);
         StringBuilder mistakesAnswer = new StringBuilder("В последнее время у тебя скопились ошибки по следующим темам:\n");
@@ -333,9 +352,9 @@ public class EntBot extends TelegramLongPollingBot {
         sendTextMessage(message);
     }
 
-    private void aiCheckUserAnswer(String chatId, List<UserAnswer> userAnswers) {
+    private void aiCheckUserAnswer(String chatId, AIRequest aiRequest) {
         try {
-            String jsonUserAnswer = "Проверка:\n" + objectMapper.writeValueAsString(userAnswers);
+            String jsonUserAnswer = "Проверка:\n" + objectMapper.writeValueAsString(aiRequest);
             String answer = aiService.askAi(jsonUserAnswer);
             SendMessage message = SendMessage.builder()
                     .chatId(chatId)

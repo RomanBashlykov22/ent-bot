@@ -18,7 +18,8 @@ CREATE TABLE questions (
     topic_id BIGINT NOT NULL REFERENCES topics(id),
     subtopic_id BIGINT NOT NULL REFERENCES subtopics(id),
     question_text TEXT NOT NULL,
-    correct_option VARCHAR(255) NOT NULL
+    correct_option VARCHAR(255) NOT NULL,
+    difficulty VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE question_options (

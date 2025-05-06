@@ -2,6 +2,9 @@ package kz.roman.enttgbot.service;
 
 import com.azure.ai.openai.assistants.AssistantsClient;
 import com.azure.ai.openai.assistants.models.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import kz.roman.enttgbot.model.dto.AIRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +16,7 @@ import java.util.List;
 public class AIService {
     private final AssistantsClient assistantsClient;
     private final Assistant assistant;
+    private final ObjectMapper objectMapper;
 
 
     public String askAi(String message) throws InterruptedException {
@@ -44,5 +48,15 @@ public class AIService {
         } while (run.getStatus() == RunStatus.QUEUED || run.getStatus() == RunStatus.IN_PROGRESS);
 
         return assistantsClient.listMessages(run.getThreadId()).getData();
+    }
+
+    public String checkAnswers(AIRequest aiRequest) throws InterruptedException {
+        String jsonUserAnswer = null;
+        try {
+            jsonUserAnswer = "Проверка:\n" + objectMapper.writeValueAsString(aiRequest);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        return askAi(jsonUserAnswer);
     }
 }

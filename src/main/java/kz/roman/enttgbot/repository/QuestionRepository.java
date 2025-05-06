@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface QuestionRepository extends JpaRepository<Question, Long> {
@@ -12,4 +13,5 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
     List<Question> findAllByTopicId(Long topicId);
 
     List<Question> findAllBySubtopicId(Long subtopicId);
+    Optional<Question> findByQuestionText(String questionText);
 }

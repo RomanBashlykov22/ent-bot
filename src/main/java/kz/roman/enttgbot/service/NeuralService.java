@@ -1,9 +1,12 @@
 package kz.roman.enttgbot.service;
 
+import jakarta.persistence.EntityNotFoundException;
+import kz.roman.enttgbot.model.dto.ApiUserAnswers;
 import kz.roman.enttgbot.model.dto.GradationScore;
 import kz.roman.enttgbot.model.dto.TestSession;
 import kz.roman.enttgbot.model.dto.UserAnswer;
 import kz.roman.enttgbot.model.entity.Question;
+import kz.roman.enttgbot.repository.QuestionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import smile.regression.LinearModel;
@@ -17,6 +20,7 @@ import java.util.List;
 public class NeuralService {
 
     private final LinearModel linearModel;
+    private final QuestionRepository questionRepository;
 
     public double[][] buildAnswerMatrix(TestSession testSession, List<UserAnswer> userAnswers) {
         List<List<Double>> result = new ArrayList<>();
@@ -78,5 +82,31 @@ public class NeuralService {
         gradationScore.setTotalScore(gradationScore.getScores().stream().mapToDouble(Double::doubleValue).average().orElse(0));
         System.out.println("total " + gradationScore.getTotalScore());
         return gradationScore;
+    }
+
+    public double[][] buildAnswerMatrix(List<ApiUserAnswers> userAnswers) {
+        List<Question> questions = new ArrayList<>();
+
+        userAnswers.forEach(q -> questions.add(questionRepository.findByQuestionText(q.getQuestion()).orElseThrow(() -> new EntityNotFoundException("Question not found"))));
+
+        List<List<Double>> result = new ArrayList<>();
+        for (int i = 0; i < questions.size(); i++) {
+            Question question = questions.get(i);
+            ApiUserAnswers userAnswer = userAnswers.get(i);
+
+            // 1. Сложность (переводим строку в число)
+            double difficulty = mapDifficulty(question.getDifficulty().toString());
+
+            // 2. Верность ответа
+            double isCorrect = question.getCorrectOption().equals(userAnswer.getSelectedOption()) ? 1.0 : 0.0;
+
+            // 3. Потраченное время
+            double timeSpentSeconds = userAnswer.getSeconds();
+
+            List<Double> answerData = List.of(difficulty, isCorrect, timeSpentSeconds);
+            result.add(answerData);
+        }
+
+        return convertToPrimitiveArray(result);
     }
 }

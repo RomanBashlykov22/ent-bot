@@ -4,6 +4,7 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 .env
+vault-setup/*.txt
 
 ### STS ###
 .apt_generated

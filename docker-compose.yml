@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  postgres_ent:
+    image: postgres:15
+    container_name: postgres_ent
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+
+  redis_ent:
+    image: redis:alpine
+    container_name: redis_ent
+    networks:
+      - app_network
+
+  vault_ent:
+    build:
+      context: ./vault-setup
+    container_name: vault_ent
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      TG_BOT_NAME: ${TG_BOT_NAME}
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN}
+      OPEN_AI_KEY: ${OPEN_AI_KEY}
+      OPEN_AI_ASSISTANT_ID: ${OPEN_AI_ASSISTANT_ID}
+    ports:
+      - "8200:8200"
+    networks:
+      - app_network
+    depends_on:
+      - postgres_ent
+      - redis_ent
+    volumes:
+      - ./vault-setup/role_id.txt:/role_id.txt
+      - ./vault-setup/secret_id.txt:/secret_id.txt
+    env_file:
+      - .env
+
+  app_ent:
+    build:
+      context: .
+    container_name: app_ent
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis_ent
+      REDIS_PORT: 6379
+      SPRING_CLOUD_VAULT_AUTHENTICATION: APPROLE
+      JAVA_OPTS: "-XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -Dio.netty.noUnsafe=true -Dio.netty.noJdkZlibDecoder=true -Dio.netty.noJdkZlibEncoder=true"
+    depends_on:
+      - vault_ent
+      - postgres_ent
+      - redis_ent
+    volumes:
+      - ./vault-setup/role_id.txt:/role_id.txt
+      - ./vault-setup/secret_id.txt:/secret_id.txt
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  postgres_data:

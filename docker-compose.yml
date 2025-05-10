@@ -53,11 +53,14 @@ services:
       REDIS_HOST: redis_ent
       REDIS_PORT: 6379
       SPRING_CLOUD_VAULT_AUTHENTICATION: APPROLE
+      VAULT_FILES_PATH: "/vault-setup"
       JAVA_OPTS: "-XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -Dio.netty.noUnsafe=true -Dio.netty.noJdkZlibDecoder=true -Dio.netty.noJdkZlibEncoder=true"
     depends_on:
       - vault_ent
       - postgres_ent
       - redis_ent
+    ports:
+      - "8080:8080"
     volumes:
       - ./vault-setup/role_id.txt:/role_id.txt
       - ./vault-setup/secret_id.txt:/secret_id.txt

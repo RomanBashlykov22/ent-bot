@@ -1,6 +1,8 @@
 package kz.roman.enttgbot.service;
 
+import ai.onnxruntime.OrtException;
 import jakarta.persistence.EntityNotFoundException;
+import kz.roman.enttgbot.config.OnnxPredictor;
 import kz.roman.enttgbot.model.dto.ApiUserAnswers;
 import kz.roman.enttgbot.model.dto.GradationScore;
 import kz.roman.enttgbot.model.dto.TestSession;
@@ -19,7 +21,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class NeuralService {
 
-    private final LinearModel linearModel;
+//    private final LinearModel linearModel;
+    private final OnnxPredictor onnxPredictor;
     private final QuestionRepository questionRepository;
 
     public double[][] buildAnswerMatrix(TestSession testSession, List<UserAnswer> userAnswers) {
@@ -72,7 +75,14 @@ public class NeuralService {
     public GradationScore gradation(double[][] data) {
         GradationScore gradationScore = new GradationScore();
         for (double[] sample : data) {
-            double prediction = linearModel.predict(sample);
+            float[] input = new float[sample.length];
+            for (int i = 0; i < sample.length; i++) input[i] = (float) sample[i];
+            double prediction = 0;
+            try {
+                prediction = onnxPredictor.predict(input);
+            } catch (OrtException e) {
+                throw new IllegalArgumentException(e);
+            }
             if (prediction < 0) prediction = 0;
             if (prediction > 1) prediction = 1;
             System.out.printf("Input: %s → Predicted score: %.4f%n",

@@ -21,6 +21,7 @@ public class OnnxPredictor {
 
     public OnnxPredictor(@Value("${model.name}") String resourceName) throws Exception {
         env = OrtEnvironment.getEnvironment();
+        System.out.println("🔍 Попытка загрузки модели: " + resourceName);
 
         // 1) Открываем ресурс из classpath
         try (InputStream modelStream =
